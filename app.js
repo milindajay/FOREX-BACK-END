@@ -12,11 +12,11 @@ const app = express();
 app.get('/', (req, res) => {
     res.send('Welcome to the server!');
 });
-// app.use(
-// 	cors({
-// 		origin: 'http://localhost:3001',
-// 	})
-// );
+app.use(
+	cors({
+		origin: 'https://app.forexcellencenet.com',
+	})
+);
 
 app.use(function(req, res, next) {
 	res.header("Access-Control-Allow-Origin", "https://app.forexcellencenet.com"); 
