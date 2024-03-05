@@ -9,26 +9,24 @@ const paymentRoutes = require('./routes/payment'); // Include the payment routes
 
 const app = express();
 
-app.get('/', (req, res) => {
-    res.send('Welcome to the server!');
-});
-app.use(
-	cors({
-		origin: 'https://app.forexcellencenet.com',
-	})
-);
+app.use(cors());
 
-app.use(function(req, res, next) {
-	res.header("Access-Control-Allow-Origin", "https://app.forexcellencenet.com"); 
-	res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+app.use(function (req, res, next) {
+	// res.header('Access-Control-Allow-Origin', 'https://api.forexcellencenet.com/');
+	res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
 	next();
-  });
+});
+
 app.use(express.json());
-app.use('/static', express.static(path.resolve('./frontend/static/')));
 
 app.get('/', (req, res) => {
-	res.sendFile(path.resolve('./frontend/index.html'));
+	res.send('Welcome to the server!');
 });
+// app.use('/static', express.static(path.resolve('./frontend/static/')));
+
+// app.get('/', (req, res) => {
+// 	res.sendFile(path.resolve('./frontend/index.html'));
+// });
 
 app.use('/api/users', userRegistrationRouter);
 app.use('/api/verify', emailVerifyRouter);
