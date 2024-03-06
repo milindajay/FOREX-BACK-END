@@ -70,7 +70,7 @@ router.post('/register', async (req, res) => {
 				username: firstName,
 				firstName: firstName,
 				lastName: lastName,
-				role: 'Admin',
+				role: 'User',
 			},
 		});
 	} catch (error) {
