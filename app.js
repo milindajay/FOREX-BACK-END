@@ -39,5 +39,5 @@ app.use('/api/payment', paymentRoutes); // Mount the payment routes on '/api/pay
 // 	res.sendFile(path.resolve('./frontend/index.html'));
 // });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
