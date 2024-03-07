@@ -14,12 +14,12 @@ app.get('/', (req, res) => {
 });
 app.use(
 	cors({
-		origin: 'https://app.forexcellencenet.com',
+		origin: 'http://localhost:3001',
 	})
 );
 
 app.use(function(req, res, next) {
-	res.header("Access-Control-Allow-Origin", "https://app.forexcellencenet.com"); 
+	// res.header("Access-Control-Allow-Origin", "https://app.forexcellencenet.com"); 
 	res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
 	next();
   });
