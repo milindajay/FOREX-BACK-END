@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../database'); // Adjust the path as necessary
+const { logger } = require('../utilities/logger');
 
 const router = express.Router();
 
@@ -17,14 +18,16 @@ router.post('/login', async (req, res) => {
 			return res.status(401).send({ message: 'Login failed', code: 'LOGIN_FAILED' });
 		}
 
+		// throw new Error('just for fun');
+
 		const user = users[0];
 
-		// // Check profile status
-		// if (user.profile_status === 'Dormant') {
-		//     return res.status(403).send({ message: 'Account is dormant. Please contact support.', code: 'ACCOUNT_DORMANT' });
-		// } else if (user.profile_status === 'Verification Pending') {
-		//     return res.status(403).send({ message: 'Please verify your account.', code: 'ACCOUNT_PENDING_VERIFICATION' });
-		// }
+		// Check profile status
+		if (user.profile_status === 'Dormant') {
+			return res.status(403).send({ message: 'Account is dormant. Please contact support.', code: 'ACCOUNT_DORMANT' });
+		} else if (user.profile_status === 'Verification Pending') {
+			return res.status(403).send({ message: 'Please verify your account.', code: 'ACCOUNT_PENDING_VERIFICATION' });
+		}
 
 		// Verify password
 		const match = await bcrypt.compare(password, user.password);
@@ -52,7 +55,7 @@ router.post('/login', async (req, res) => {
 			res.status(401).send({ message: 'Login failed', code: 'LOGIN_FAILED' });
 		}
 	} catch (error) {
-		console.error('Login error:', error);
+		logger.error('Login error:', error);
 		res.status(500).send({ message: 'Internal server error', code: 'SERVER_ERROR' });
 	}
 });
