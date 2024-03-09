@@ -41,7 +41,7 @@ const transporter = nodemailer.createTransport({
 
 async function generateMemberId() {
 	try {
-		const results = await query('SELECT MAX(member_id) AS maxId FROM `fx-users`');
+		const results = await query('SELECT MAX(member_id) AS maxId FROM `fx_users`');
 		const maxId = results.length > 0 ? results[0].maxId : null;
 		return maxId ? maxId + 1 : 7500;
 	} catch (error) {
@@ -53,7 +53,7 @@ async function generateMemberId() {
 async function generateVerificationToken(email) {
 	const token = crypto.randomBytes(20).toString('hex');
 	try {
-		await query('UPDATE `fx-users` SET verification_token = ? WHERE email = ?', [token, email]);
+		await query('UPDATE `fx_users` SET verification_token = ? WHERE email = ?', [token, email]);
 		return token;
 	} catch (error) {
 		logger.error('Error in generateVerificationToken:', error);
@@ -62,7 +62,7 @@ async function generateVerificationToken(email) {
 }
 
 async function sendVerificationEmail(email, verificationToken) {
-	const verificationLink = `https://api.forexcellencenet.com/verify?token=${verificationToken}`;
+	const verificationLink = `https://api.forexcellencenet.com/api/verify/verify?token=${verificationToken}`;
 	const mailOptions = {
 		from: process.env.SMTP_USER,
 		to: email,
@@ -86,7 +86,7 @@ function generateReferralLink(memberId, type) {
 
 async function updateReferralLinks(memberId, referralLinkA, referralLinkB) {
 	try {
-		await query('UPDATE `fx-users` SET referral_link_a = ?, referral_link_b = ? WHERE member_id = ?', [
+		await query('UPDATE `fx_users` SET referral_link_a = ?, referral_link_b = ? WHERE member_id = ?', [
 			referralLinkA,
 			referralLinkB,
 			memberId,

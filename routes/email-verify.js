@@ -11,7 +11,7 @@ router.get('/verify', async (req, res) => {
 
 	try {
 		const result = await db.query(
-			'UPDATE `fx-users` SET profile_status = ?, verification_date = NOW() WHERE verification_token = ? AND profile_status != "Verified"',
+			'UPDATE `fx_users` SET profile_status = ?, verification_date = NOW() WHERE verification_token = ? AND profile_status != "Verified"',
 			['Verified', token]
 		);
 		if (result.affectedRows === 0) {
