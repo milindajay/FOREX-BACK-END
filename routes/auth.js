@@ -11,7 +11,7 @@ router.post('/login', async (req, res) => {
 
 	try {
 		// Retrieve user from the database
-		const query = 'SELECT * FROM `fx-users` WHERE email = ?';
+		const query = 'SELECT * FROM `fx_users` WHERE email = ?';
 		const users = await db.query(query, [email]);
 
 		if (users.length === 0) {
@@ -25,9 +25,10 @@ router.post('/login', async (req, res) => {
 		// Check profile status
 		if (user.profile_status === 'Dormant') {
 			return res.status(403).send({ message: 'Account is dormant. Please contact support.', code: 'ACCOUNT_DORMANT' });
-		} else if (user.profile_status === 'Verification Pending') {
-			return res.status(403).send({ message: 'Please verify your account.', code: 'ACCOUNT_PENDING_VERIFICATION' });
 		}
+		// else if (user.profile_status === 'Verification Pending') {
+		// 	return res.status(403).send({ message: 'Please verify your account.', code: 'ACCOUNT_PENDING_VERIFICATION' });
+		// }
 
 		// Verify password
 		const match = await bcrypt.compare(password, user.password);
@@ -49,6 +50,7 @@ router.post('/login', async (req, res) => {
 					referralLinkA: user.referral_link_a,
 					referralLinkB: user.referral_link_b,
 					username: user.first_name,
+					profile_status: user.profile_status,
 				},
 			});
 		} else {

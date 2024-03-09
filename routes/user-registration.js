@@ -34,7 +34,7 @@ router.post('/register', async (req, res) => {
 
 		// Insert the new user into the database, now including referral_type
 		const q = await query(
-			'INSERT INTO `fx-users` (introducer, first_name, last_name, email, mobile_number, secondary_phone_number, address, national_identity_number, date_of_birth, nationality, password, member_id, verification_token, referral_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+			'INSERT INTO `fx_users` (introducer, first_name, last_name, email, mobile_number, secondary_phone_number, address, national_identity_number, date_of_birth, nationality, password, member_id, verification_token, referral_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
 			[
 				introducer,
 				firstName,

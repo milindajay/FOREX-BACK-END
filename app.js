@@ -10,7 +10,7 @@ const { expressWinstonLogger, expressWinstonErrorLogger, logger } = require('./u
 
 const app = express();
 
-app.use(expressWinstonLogger);
+// app.use(expressWinstonLogger);
 
 app.use(cors());
 
@@ -32,7 +32,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/referral', referralRouter); // Corrected the path
 app.use('/api/payment', paymentRoutes); // Mount the payment routes on '/api/payment'
 
-app.use(expressWinstonErrorLogger);
+// app.use(expressWinstonErrorLogger);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => logger.info(`Server running on port ${PORT}`));
