@@ -8,6 +8,7 @@ const {
 	generateReferralLink,
 	updateReferralLinks, // Assuming this function updates referral links in the user's record
 } = require('../utilities/utils');
+const { logger } = require('../utilities/logger');
 const router = express.Router();
 
 router.post('/register', async (req, res) => {
@@ -74,7 +75,7 @@ router.post('/register', async (req, res) => {
 			},
 		});
 	} catch (error) {
-		console.error('Registration error:', error);
+		logger.error('Registration error:', error);
 		res.status(500).send({ message: 'Error registering user', error: error.toString() });
 	}
 });
