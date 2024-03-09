@@ -1,3 +1,4 @@
 .env
 app.log.txt
 node_modules
+.DS_Store
