@@ -79,28 +79,26 @@ async function sendVerificationEmail(email, verificationToken) {
 	}
 }
 
-function generateReferralLink(memberId, type) {
-	const baseUrl = process.env.REFERRAL_BASE_URL || 'https://api.forexcellencenet.com/referral';
-	return `${baseUrl}?ref=${memberId}&type=${type}`;
-}
+// function generateReferralLink(memberId, type) {
+// 	const baseUrl = process.env.REFERRAL_BASE_URL || 'https://api.forexcellencenet.com/referral';
+// 	return `${baseUrl}?ref=${memberId}&type=${type}`;
+// }
 
-async function updateReferralLinks(memberId, referralLinkA, referralLinkB) {
-	try {
-		await query('UPDATE `fx_users` SET referral_link_a = ?, referral_link_b = ? WHERE member_id = ?', [
-			referralLinkA,
-			referralLinkB,
-			memberId,
-		]);
-	} catch (error) {
-		logger.error('Error in updateReferralLinks:', error);
-		throw error;
-	}
-}
+// async function updateReferralLinks(memberId, referralLinkA, referralLinkB) {
+// 	try {
+// 		await query('UPDATE `fx_users` SET referral_link_a = ?, referral_link_b = ? WHERE member_id = ?', [
+// 			referralLinkA,
+// 			referralLinkB,
+// 			memberId,
+// 		]);
+// 	} catch (error) {
+// 		logger.error('Error in updateReferralLinks:', error);
+// 		throw error;
+// 	}
+// }
 
 module.exports = {
 	generateMemberId,
 	sendVerificationEmail,
 	generateVerificationToken,
-	generateReferralLink,
-	updateReferralLinks,
 };
