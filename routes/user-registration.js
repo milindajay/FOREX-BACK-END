@@ -74,8 +74,7 @@ router.post('/register', async (req, res) => {
 
         res.status(201).send({
             message: 'User registered successfully. Please check your email to verify your account.',
-            referralLinkA,
-            referralLinkB,
+        
             ...{
                 id: q.insertedId,
                 username: firstName,

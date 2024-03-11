@@ -47,10 +47,16 @@ router.post('/login', async (req, res) => {
 					lastName: user.last_name,
 					role: user.user_role,
 					token,
-					referralLinkA: user.referral_link_a,
-					referralLinkB: user.referral_link_b,
 					username: user.first_name,
 					profile_status: user.profile_status,
+					mobileNumber: user.mobile_number,
+					secondaryPhone: user.secondary_phone_number,
+					address: user.address,
+					dateOfBirth: user.date_of_birth,
+					nationalIdentityNumber: user.national_identity_number,
+					registrationDate: user.registration_date,
+					introducer: user.introducer
+
 				},
 			});
 		} else {
