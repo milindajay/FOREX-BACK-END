@@ -55,7 +55,13 @@ router.post('/login', async (req, res) => {
 					dateOfBirth: user.date_of_birth,
 					nationalIdentityNumber: user.national_identity_number,
 					registrationDate: user.registration_date,
-					introducer: user.introducer
+					introducer: user.introducer,
+					salesSummary: user.sales_sum,
+					debitCount: user.debit_count,
+					introCount: user.intro_count,
+					firstSalesAmount: user.first_sale_amount,
+					cashBack: user.cash_back,
+					currentPlan: user.plan
 
 				},
 			});
