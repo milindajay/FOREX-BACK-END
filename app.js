@@ -7,6 +7,8 @@ const authRouter = require('./routes/auth');
 const referralRouter = require('./routes/referralRouter'); // Ensure the correct path
 const paymentRoutes = require('./routes/payment'); // Include the payment routes
 const { expressWinstonLogger, expressWinstonErrorLogger, logger } = require('./utilities/logger');
+const referralTreeRouter = require('./routes/referralTree'); // Make sure this path is correct.
+
 
 const app = express();
 
@@ -31,6 +33,7 @@ app.use('/api/verify', emailVerifyRouter);
 app.use('/api/auth', authRouter);
 app.use('/api/referral', referralRouter); // Corrected the path
 app.use('/api/payment', paymentRoutes); // Mount the payment routes on '/api/payment'
+app.use('/api/referral-tree', referralTreeRouter);
 
 // app.use(expressWinstonErrorLogger);
 

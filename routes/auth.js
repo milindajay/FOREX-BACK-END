@@ -61,7 +61,8 @@ router.post('/login', async (req, res) => {
 					introCount: user.intro_count,
 					firstSalesAmount: user.first_sale_amount,
 					cashBack: user.cash_back,
-					currentPlan: user.plan
+					currentPlan: user.plan,
+					referralType: user.referral_type,
 
 				},
 			});
