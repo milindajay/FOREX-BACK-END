@@ -22,6 +22,11 @@ router.post('/login', async (req, res) => {
 
 		const user = users[0];
 
+		const q = 'SELECT * FROM `products` WHERE id = ?';
+		const products = await db.query(q, [user.plan]);
+
+		const currentPlanData = products?.at(0) ?? null;
+
 		// Check profile status
 		if (user.profile_status === 'Dormant') {
 			return res.status(403).send({ message: 'Account is dormant. Please contact support.', code: 'ACCOUNT_DORMANT' });
@@ -62,8 +67,8 @@ router.post('/login', async (req, res) => {
 					firstSalesAmount: user.first_sale_amount,
 					cashBack: user.cash_back,
 					currentPlan: user.plan,
+					currentPlanData,
 					referralType: user.referral_type,
-
 				},
 			});
 		} else {
