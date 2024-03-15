@@ -15,13 +15,13 @@ router.get('/verify', async (req, res) => {
 			['Verified', token]
 		);
 		if (result.affectedRows === 0) {
-			return res.status(404).send('User not found or already verified.');
+			return res.status(404).json({ success: false, message: 'User not found or already verified.' });
 		}
 
-		res.send('Your email has been successfully verified.');
+		res.json({ success: true, message: 'Your email has been successfully verified.' });
 	} catch (error) {
 		logger.error('Email verification error:', error);
-		res.status(500).send('Internal server error during email verification.');
+		res.status(500).json({ success: false, message: 'Internal server error during email verification.' });
 	}
 });
 

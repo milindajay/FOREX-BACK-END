@@ -62,7 +62,7 @@ async function generateVerificationToken(email) {
 }
 
 async function sendVerificationEmail(email, verificationToken) {
-	const verificationLink = `https://api.forexcellencenet.com/api/verify/verify?token=${verificationToken}`;
+	const verificationLink = `${process.env.FRONT_END_APP_URL}/auth/verify-email?token=${verificationToken}`;
 	const mailOptions = {
 		from: process.env.SMTP_USER,
 		to: email,

@@ -1,11 +1,12 @@
-{	"name": "forexcellence",
+{
+	"name": "forexcellence",
 	"version": "1.0.0",
 	"description": "Forexcellence Information Technology Services WebApp",
 	"main": "app.js",
 	"scripts": {
 		"test": "jest",
 		"start": "node app.js",
-		"dev": "node --watch app.js"
+		"dev": "nodemon --inspect app.js"
 	},
 	"author": "Forexcellence Information Technology Services EST",
 	"license": "ISC",
@@ -26,6 +27,7 @@
 		"winston": "^3.12.0"
 	},
 	"devDependencies": {
-		"concurrently": "^8.2.2"
+		"concurrently": "^8.2.2",
+		"nodemon": "^3.1.0"
 	}
 }
