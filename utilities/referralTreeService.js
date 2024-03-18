@@ -28,14 +28,13 @@ const calculateReferralPoints = async (memberId) => {
 };
 
 const buildTree = async (currentId, level = 1) => {
-	// const sideAChildren = [];
-	// const sideBChildren = [];
-	const children = [];
+	const sideAChildren = [];
+	const sideBChildren = [];
 
 	if (level > 2)
 		return {
-			// sideAChildren, sideBChildren,
-			children,
+			sideAChildren,
+			sideBChildren,
 			level,
 			levelSkipped: true,
 		};
@@ -76,14 +75,14 @@ const buildTree = async (currentId, level = 1) => {
 			sideBRemaining: points.remainingB,
 			...subTree,
 		};
-		children.push(child);
-		// if (child.referral_type === 'A') sideAChildren.push(child);
-		// else sideBChildren.push(child);
+		// children.push(child);
+		if (child.referral_type === 'A') sideAChildren.push(child);
+		else sideBChildren.push(child);
 	}
 
 	return {
-		// sideAChildren, sideBChildren,
-		children,
+		sideAChildren,
+		sideBChildren,
 		level,
 		levelSkipped: false,
 	};
@@ -103,46 +102,90 @@ function unflattenArray(arr) {
 	return root;
 }
 
-const buildTreeWithReferralType = async (currentId, referralType) => {
-	const children = [];
-
-	const referralsQuery = `
+const getReferral = async (referral_member_id, referral_type) => {
+	if (referral_member_id) {
+		const referralsQuery = `
             SELECT 
                 member_id, 
                 first_name, 
                 last_name, 
                 referral_type, 
-                introducer 
+                introducer,
+				referral_side_A_member_id,
+				referral_side_B_member_id 
             FROM 
                 fx_users 
             WHERE 
-                introducer = ? AND referral_type = ?`;
-	const referrals = await query(referralsQuery, [currentId, referralType]);
+                member_id = ? AND referral_type = ?`;
+		const referrals = await query(referralsQuery, [referral_member_id, referral_type]);
 
-	for (const referral of referrals) {
-		// Calculate referral points for this node
-		// const points = await calculateReferralPoints(referral.member_id);
+		const referral = referrals.at(0);
+		if (referral) {
+			const sideAReferralMemberId = referral.referral_side_A_member_id;
+			const sideBReferralMemberId = referral.referral_side_B_member_id;
 
-		// Recursive call to process each child node
-		// const subTree = await buildTree(referral.member_id);
-		// const [points, subTree] = await Promise.all([
-		// 	calculateReferralPoints(referral.member_id),
-		// 	buildTree(referral.member_id, level + 1),
-		// ]);
-
-		const child = {
-			member_id: referral.member_id,
-			first_name: referral.first_name,
-			last_name: referral.last_name,
-			referral_type: referral.referral_type,
-			introducer: referral.introducer,
-		};
-		children.push(child);
+			return {
+				member_id: referral.member_id,
+				first_name: referral.first_name,
+				last_name: referral.last_name,
+				referral_type: referral.referral_type,
+				introducer: referral.introducer,
+				sideAReferralMemberId,
+				sideBReferralMemberId,
+				sideAReferral: sideAReferralMemberId ? await getReferral(sideAReferralMemberId, 'A') : null,
+				sideBReferral: sideBReferralMemberId ? await getReferral(sideBReferralMemberId, 'B') : null,
+			};
+		}
+		return null;
 	}
+	return null;
+};
 
-	return {
-		children,
-	};
+const buildReferralTree = async (
+	referral_side_A_member_id,
+	referral_side_B_member_id,
+	maxLevel = Infinity,
+	level = 1
+) => {
+	let sideAReferral = null;
+	let sideBReferral = null;
+	let skipped = false;
+
+	if (level > maxLevel) skipped = true;
+
+	if (!skipped) {
+		const referralMemberIds = [referral_side_A_member_id, referral_side_B_member_id].filter((id) => id);
+		if (referralMemberIds.length > 0) {
+			const referralsQuery = `
+            SELECT 
+                member_id, 
+                first_name, 
+                last_name, 
+                referral_type, 
+                introducer,
+				referral_side_A_member_id,
+				referral_side_B_member_id 
+            FROM 
+                fx_users 
+            WHERE 
+                member_id IN (?) `;
+			const referrals = await query(referralsQuery, [referralMemberIds]);
+
+			if (referrals.length > 0) {
+				for (const referral of referrals) {
+					const sideAReferralMemberId = referral['referral_side_A_member_id'];
+					const sideBReferralMemberId = referral['referral_side_B_member_id'];
+
+					const tree = await buildReferralTree(sideAReferralMemberId, sideBReferralMemberId, maxLevel, level + 1);
+					const modifiedReferral = { ...referral, ...tree, level };
+
+					if (referral.referral_type === 'A') sideAReferral = modifiedReferral;
+					else sideBReferral = modifiedReferral;
+				}
+			}
+		}
+	}
+	return { sideAReferral, sideBReferral, skipped };
 };
 
 const getReferralTree = async (memberId) => {
@@ -154,7 +197,9 @@ const getReferralTree = async (memberId) => {
             first_name, 
             last_name, 
             referral_type, 
-            introducer 
+            introducer,
+			referral_side_A_member_id,
+			referral_side_B_member_id
         FROM 
             fx_users 
         WHERE 
@@ -168,12 +213,16 @@ const getReferralTree = async (memberId) => {
 
 	const rootMember = rootMembers[0];
 	// Calculate referral points for the root member
-	const rootPoints = await calculateReferralPoints(rootMember.member_id);
+	// const rootPoints = await calculateReferralPoints(rootMember.member_id);
 
 	// Start building the tree from the root member
 	// const tree = await buildTree(memberId);
-	const sideAChildren = await buildTreeWithReferralType(memberId, 'A');
-	const sideBChildren = await buildTreeWithReferralType(memberId, 'B');
+
+	const referral_side_A_member_id = rootMember['referral_side_A_member_id'];
+	const referral_side_B_member_id = rootMember['referral_side_B_member_id'];
+	// const sideAReferral = await getReferral(sideAReferralMemberId, 'A');
+	// const sideBReferral = await getReferral(sideBReferralMemberId, 'B');
+	const tree = await buildReferralTree(referral_side_A_member_id, referral_side_B_member_id, 3, 2);
 
 	return [
 		{
@@ -182,12 +231,16 @@ const getReferralTree = async (memberId) => {
 			last_name: rootMember.last_name,
 			referral_type: rootMember.referral_type,
 			introducer: rootMember.introducer,
-			sideAPoints: rootPoints.sideA,
-			sideBPoints: rootPoints.sideB,
-			sideARemaining: rootPoints.remainingA,
-			sideBRemaining: rootPoints.remainingB,
-			sideAChildren: unflattenArray(sideAChildren.children),
-			sideBChildren: unflattenArray(sideBChildren.children),
+			// sideAPoints: rootPoints.sideA,
+			// sideBPoints: rootPoints.sideB,
+			// sideARemaining: rootPoints.remainingA,
+			// sideBRemaining: rootPoints.remainingB,
+			referral_side_A_member_id,
+			referral_side_B_member_id,
+			// sideAReferral,
+			// sideBReferral,
+			level: 1,
+			...tree,
 		},
 	];
 };

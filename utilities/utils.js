@@ -50,10 +50,10 @@ async function generateMemberId() {
 	}
 }
 
-async function generateVerificationToken(email) {
-	const token = crypto.randomBytes(20).toString('hex');
+function generateVerificationToken(email) {
 	try {
-		await query('UPDATE `fx_users` SET verification_token = ? WHERE email = ?', [token, email]);
+		const token = crypto.randomBytes(20).toString('hex');
+		// await query('UPDATE `fx_users` SET verification_token = ? WHERE email = ?', [token, email]);
 		return token;
 	} catch (error) {
 		logger.error('Error in generateVerificationToken:', error);
