@@ -3,6 +3,7 @@ require('dotenv').config();
 const crypto = require('crypto');
 const mysql = require('mysql');
 const { logger } = require('./logger');
+const { transporter } = require('../mailer');
 
 // Manually create a Promise-based query function
 const db = mysql.createConnection({
@@ -28,16 +29,6 @@ function query(sql, params) {
 		});
 	});
 }
-
-const transporter = nodemailer.createTransport({
-	host: process.env.SMTP_HOST,
-	port: parseInt(process.env.SMTP_PORT, 10),
-	secure: process.env.SMTP_SECURE === 'true',
-	auth: {
-		user: process.env.SMTP_USER,
-		pass: process.env.SMTP_PASS,
-	},
-});
 
 async function generateMemberId() {
 	try {

@@ -6,6 +6,7 @@ const { logger } = require('../utilities/logger');
 require('dotenv').config();
 const router = express.Router();
 const db = require('../database');
+const { transporter } = require('../mailer');
 
 const ADMINISTRATION_AND_ONE_YEAR_SIGNAL_FEE = 15;
 const STRIPE_PROCESSING_FEE_PERCENTAGE = 4.2 / 100;
@@ -39,7 +40,7 @@ router.get('/get-products/:currentPlan', async (req, res) => {
 	res.json({
 		...planData,
 		administrationFee,
-		total: fullTotal,
+		total,
 		stripeTotal: fullTotal * 100,
 	});
 });
@@ -187,6 +188,35 @@ router.get('/verify-payment', async (req, res) => {
 		console.error(error);
 		res.json({ status: 500, message: error.message });
 	}
+});
+
+router.post('/verify-binance-payment', async (req, res) => {
+	const { trx, member_id, amount, plan_id } = req.body;
+
+	const mailOptions = {
+		from: process.env.SMTP_USER,
+		to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
+		cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
+		subject: 'Verify Binance Payment',
+		html: `<p>You have received a Payment of  ${amount} USD from ${member_id}, Transaction ID is ${trx}. Plan ${plan_id}</p>`,
+	};
+
+	try {
+		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
+			parseFloat(amount),
+			trx,
+			parseInt(member_id),
+			parseInt(plan_id),
+		]);
+
+		await transporter.sendMail(mailOptions);
+		logger.info('Email to verify binance payment sent.');
+	} catch (error) {
+		logger.error('Failed to send email to verify binance payment:', error);
+		throw new Error('Failed to send email to verify binance payment');
+	}
+	// console.log('Binance', { ...req.body });
+	res.json({ success: true });
 });
 
 // Binance Pay payment endpoint (Corrected and updated version)
