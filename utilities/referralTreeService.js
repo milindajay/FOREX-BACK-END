@@ -4,10 +4,14 @@ const { query } = require('../database'); // Ensure the path to your database mo
 const calculateReferralPoints = (sideAPoints = 0, sideBPoints = 0) => {
 	// Calculate remaining points to reach the next bonus level
 	const minSide = Math.min(sideAPoints, sideBPoints);
-	const sideARemaining = sideAPoints > sideBPoints ? 0 : minSide + 1 - sideAPoints;
-	const sideBRemaining = sideBPoints > sideAPoints ? 0 : minSide + 1 - sideBPoints;
+	// const sideARemaining = sideAPoints > sideBPoints ? 0 : minSide + 1 - sideAPoints;
+	// const sideBRemaining = sideBPoints > sideAPoints ? 0 : minSide + 1 - sideBPoints;
 
-	return { sideAPoints, sideBPoints, sideARemaining, sideBRemaining };
+	return {
+		sideAPoints,
+		sideBPoints,
+		// , sideARemaining, sideBRemaining
+	};
 };
 
 const buildTree = async (currentId, level = 1) => {

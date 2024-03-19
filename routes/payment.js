@@ -10,6 +10,9 @@ const db = require('../database');
 const ADMINISTRATION_AND_ONE_YEAR_SIGNAL_FEE = 15;
 const STRIPE_PROCESSING_FEE_PERCENTAGE = 4.2 / 100;
 
+const DIRECT_COMMISSION_PERCENTAGE = 10 / 100;
+const REFERRAL_POINT_USD_VALUE = 3;
+
 function calculateTotalCharge(productPrice) {
 	const flatFee = 1.0;
 
@@ -62,31 +65,75 @@ router.post('/create-payment-intent', async (req, res) => {
 	}
 });
 
-async function addReferralPointsToParents(referral_points, current_user_id, referral_type, level = 1) {
+async function addReferralBonuses(member_id, sp_A, sp_B) {
+	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
+	const isEligible = eligibleReferralPoints >= 1;
+
+	if (isEligible) {
+		const updatedSpA = sp_A - eligibleReferralPoints;
+		const updatedSpB = sp_B - eligibleReferralPoints;
+
+		const bonus = eligibleReferralPoints * REFERRAL_POINT_USD_VALUE;
+
+		await db.query('UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ? WHERE member_id = ?', [
+			bonus,
+			updatedSpA,
+			updatedSpB,
+			member_id,
+		]);
+	}
+}
+
+async function addReferralPointsToParents(referral_points, current_user_id, parentLinkingReferralType, level = 1) {
 	const output = { modifiedMembers: [], level };
-	const referralSide = referral_type === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
-	const referralPointsSide = referral_type === 'A' ? 'sp_A' : 'sp_B';
+	const referralSide = parentLinkingReferralType === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
+	const referralPointsSide = parentLinkingReferralType === 'A' ? 'sp_A' : 'sp_B';
+	const otherReferralPointsSide = parentLinkingReferralType === 'B' ? 'sp_A' : 'sp_B';
 
 	const q = await db.query(`SELECT * FROM fx_users WHERE ${referralSide} = ?`, [current_user_id]);
 
 	if (q.length > 0) {
 		const parent = q[0];
 		const currentReferralPoints = parent[referralPointsSide] ?? 0;
+		const updatedReferralPoints = currentReferralPoints + referral_points;
 
 		await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
-			currentReferralPoints + referral_points,
+			updatedReferralPoints,
 			parent.member_id,
 		]);
 
 		output.modifiedMembers.push(parent.member_id);
 
-		const data = await addReferralPointsToParents(referral_points, parent.member_id, referral_type);
+		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
 		output.modifiedMembers.push(...data.modifiedMembers);
 		output.level = data.level;
+
+		const obj = {};
+		obj[referralPointsSide] = updatedReferralPoints;
+		obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
+
+		// TODO : Awaiting this will degrade performance
+		await addReferralBonuses(parent.member_id, obj.sp_A, obj.sp_B);
 	}
 
 	return output;
 }
+
+const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
+	const directCommission = parseInt(plan_price) * DIRECT_COMMISSION_PERCENTAGE;
+
+	const data = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [introducer_id]);
+	if (data.length <= 0) throw new Error('Introducer cannot be found when adding direct commission.');
+
+	const introducer = data[0];
+	const currentDirectSales = parseInt(introducer.direct_sales);
+	const updatedDirectSales = currentDirectSales + directCommission;
+
+	await db.query('UPDATE fx_users SET direct_sales = ? WHERE member_id = ?', [
+		updatedDirectSales,
+		introducer.member_id,
+	]);
+};
 
 router.get('/verify-payment', async (req, res) => {
 	const {
@@ -112,11 +159,8 @@ router.get('/verify-payment', async (req, res) => {
 
 		const user = q1[0];
 
-		// const referralSide = user.referral_type === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
-
-		// const parentId = user[referralSide];
-
-		// TODO : First direct commission handling
+		// if plan id equals to 1 (Starter plan), add the direct commission to the introducer.
+		if (parseInt(plan) === 1) addDirectCommissionToIntroducer(user.introducer, planData.product_price);
 
 		// TODO : More payment verification required
 
