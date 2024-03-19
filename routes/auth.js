@@ -69,6 +69,9 @@ router.post('/login', async (req, res) => {
 					currentPlan: user.plan,
 					currentPlanData,
 					referralType: user.referral_type,
+					directSaleCommission: user.direct_sales,
+					binaryCommission: user.binary_commission,
+				
 				},
 			});
 		} else {
