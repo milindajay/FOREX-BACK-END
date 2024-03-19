@@ -1,30 +1,13 @@
 const { query } = require('../database'); // Ensure the path to your database module is correct
 
 // Recursive function to calculate referral points
-const calculateReferralPoints = async (memberId) => {
-	let points = { sideA: 0, sideB: 0, remainingA: 0, remainingB: 0 };
-
-	const referrals = await query(
-		`
-        SELECT member_id, referral_type FROM fx_users WHERE introducer = ?`,
-		[memberId]
-	);
-
-	for (let referral of referrals) {
-		points[referral.referral_type === 'A' ? 'sideA' : 'sideB'] += 1;
-
-		// Recurse for this referral's own referrals
-		let subPoints = await calculateReferralPoints(referral.member_id);
-		points.sideA += subPoints.sideA;
-		points.sideB += subPoints.sideB;
-	}
-
+const calculateReferralPoints = (sideAPoints = 0, sideBPoints = 0) => {
 	// Calculate remaining points to reach the next bonus level
-	const minSide = Math.min(points.sideA, points.sideB);
-	points.remainingA = points.sideA > points.sideB ? 0 : minSide + 1 - points.sideA;
-	points.remainingB = points.sideB > points.sideA ? 0 : minSide + 1 - points.sideB;
+	const minSide = Math.min(sideAPoints, sideBPoints);
+	const sideARemaining = sideAPoints > sideBPoints ? 0 : minSide + 1 - sideAPoints;
+	const sideBRemaining = sideBPoints > sideAPoints ? 0 : minSide + 1 - sideBPoints;
 
-	return points;
+	return { sideAPoints, sideBPoints, sideARemaining, sideBRemaining };
 };
 
 const buildTree = async (currentId, level = 1) => {
@@ -102,45 +85,6 @@ function unflattenArray(arr) {
 	return root;
 }
 
-const getReferral = async (referral_member_id, referral_type) => {
-	if (referral_member_id) {
-		const referralsQuery = `
-            SELECT 
-                member_id, 
-                first_name, 
-                last_name, 
-                referral_type, 
-                introducer,
-				referral_side_A_member_id,
-				referral_side_B_member_id 
-            FROM 
-                fx_users 
-            WHERE 
-                member_id = ? AND referral_type = ?`;
-		const referrals = await query(referralsQuery, [referral_member_id, referral_type]);
-
-		const referral = referrals.at(0);
-		if (referral) {
-			const sideAReferralMemberId = referral.referral_side_A_member_id;
-			const sideBReferralMemberId = referral.referral_side_B_member_id;
-
-			return {
-				member_id: referral.member_id,
-				first_name: referral.first_name,
-				last_name: referral.last_name,
-				referral_type: referral.referral_type,
-				introducer: referral.introducer,
-				sideAReferralMemberId,
-				sideBReferralMemberId,
-				sideAReferral: sideAReferralMemberId ? await getReferral(sideAReferralMemberId, 'A') : null,
-				sideBReferral: sideBReferralMemberId ? await getReferral(sideBReferralMemberId, 'B') : null,
-			};
-		}
-		return null;
-	}
-	return null;
-};
-
 const buildReferralTree = async (
 	referral_side_A_member_id,
 	referral_side_B_member_id,
@@ -163,6 +107,8 @@ const buildReferralTree = async (
                 last_name, 
                 referral_type, 
                 introducer,
+				sp_A,
+				sp_B,
 				referral_side_A_member_id,
 				referral_side_B_member_id 
             FROM 
@@ -177,7 +123,9 @@ const buildReferralTree = async (
 					const sideBReferralMemberId = referral['referral_side_B_member_id'];
 
 					const tree = await buildReferralTree(sideAReferralMemberId, sideBReferralMemberId, maxLevel, level + 1);
-					const modifiedReferral = { ...referral, ...tree, level };
+					const referralPoints = calculateReferralPoints(referral.sp_A || 0, referral.sp_B || 0);
+
+					const modifiedReferral = { ...referral, ...tree, ...referralPoints, level };
 
 					if (referral.referral_type === 'A') sideAReferral = modifiedReferral;
 					else sideBReferral = modifiedReferral;
@@ -198,6 +146,8 @@ const getReferralTree = async (memberId) => {
             last_name, 
             referral_type, 
             introducer,
+			sp_A,
+			sp_B,
 			referral_side_A_member_id,
 			referral_side_B_member_id
         FROM 
@@ -222,6 +172,7 @@ const getReferralTree = async (memberId) => {
 	const referral_side_B_member_id = rootMember['referral_side_B_member_id'];
 	// const sideAReferral = await getReferral(sideAReferralMemberId, 'A');
 	// const sideBReferral = await getReferral(sideBReferralMemberId, 'B');
+	const referralPoints = calculateReferralPoints(rootMember.sp_A || 0, rootMember.sp_B || 0);
 	const tree = await buildReferralTree(referral_side_A_member_id, referral_side_B_member_id, 3, 2);
 
 	return [
@@ -231,16 +182,11 @@ const getReferralTree = async (memberId) => {
 			last_name: rootMember.last_name,
 			referral_type: rootMember.referral_type,
 			introducer: rootMember.introducer,
-			// sideAPoints: rootPoints.sideA,
-			// sideBPoints: rootPoints.sideB,
-			// sideARemaining: rootPoints.remainingA,
-			// sideBRemaining: rootPoints.remainingB,
 			referral_side_A_member_id,
 			referral_side_B_member_id,
-			// sideAReferral,
-			// sideBReferral,
-			level: 1,
+			...referralPoints,
 			...tree,
+			level: 1,
 		},
 	];
 };

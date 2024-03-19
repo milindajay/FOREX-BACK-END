@@ -62,6 +62,32 @@ router.post('/create-payment-intent', async (req, res) => {
 	}
 });
 
+async function addReferralPointsToParents(referral_points, current_user_id, referral_type, level = 1) {
+	const output = { modifiedMembers: [], level };
+	const referralSide = referral_type === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
+	const referralPointsSide = referral_type === 'A' ? 'sp_A' : 'sp_B';
+
+	const q = await db.query(`SELECT * FROM fx_users WHERE ${referralSide} = ?`, [current_user_id]);
+
+	if (q.length > 0) {
+		const parent = q[0];
+		const currentReferralPoints = parent[referralPointsSide] ?? 0;
+
+		await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
+			currentReferralPoints + referral_points,
+			parent.member_id,
+		]);
+
+		output.modifiedMembers.push(parent.member_id);
+
+		const data = await addReferralPointsToParents(referral_points, parent.member_id, referral_type);
+		output.modifiedMembers.push(...data.modifiedMembers);
+		output.level = data.level;
+	}
+
+	return output;
+}
+
 router.get('/verify-payment', async (req, res) => {
 	const {
 		payment_intent,
@@ -76,18 +102,43 @@ router.get('/verify-payment', async (req, res) => {
 	} = req.query;
 
 	try {
-		const result1 = await db.query(
-			'UPDATE `fx_users` SET profile_status = ?, activation_date = NOW(), plan = ? WHERE member_id = ?',
-			['Activated', parseInt(plan), parseInt(member_id)]
-		);
-		const result2 = await db.query(
-			'INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)',
-			[parseFloat(amount), payment_intent, parseInt(member_id), parseInt(plan)]
+		const q = await db.query('SELECT * FROM products WHERE id = ?', [plan]);
+		if (q.length <= 0) throw new Error('Plan with given id cannot be found.');
+
+		const planData = q[0];
+
+		const q1 = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [member_id]);
+		if (q1.length <= 0) throw new Error('User with given id cannot be found.');
+
+		const user = q1[0];
+
+		// const referralSide = user.referral_type === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
+
+		// const parentId = user[referralSide];
+
+		// TODO : First direct commission handling
+
+		// TODO : More payment verification required
+
+		await db.query('UPDATE `fx_users` SET profile_status = ?, activation_date = NOW(), plan = ? WHERE member_id = ?', [
+			'Activated',
+			parseInt(plan),
+			parseInt(member_id),
+		]);
+		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
+			parseFloat(amount),
+			payment_intent,
+			parseInt(member_id),
+			parseInt(plan),
+		]);
+
+		const data = await addReferralPointsToParents(
+			parseInt(planData.referral_points),
+			parseInt(user.member_id),
+			user.referral_type
 		);
 
-		// TODO introducer
-
-		res.json({ success: true });
+		res.json({ success: true, ...data });
 	} catch (error) {
 		console.error(error);
 		res.json({ status: 500, message: error.message });
