@@ -12,6 +12,7 @@ const ADMINISTRATION_AND_ONE_YEAR_SIGNAL_FEE = 15;
 const STRIPE_PROCESSING_FEE_PERCENTAGE = 4.2 / 100;
 
 const DIRECT_COMMISSION_PERCENTAGE = 10 / 100;
+const CASH_BACK_BONUS_PERCENTAGE = 19 / 100;
 const REFERRAL_POINT_USD_VALUE = 3;
 
 function calculateTotalCharge(productPrice) {
@@ -66,6 +67,28 @@ router.post('/create-payment-intent', async (req, res) => {
 	}
 });
 
+// A one-time bonus when a member reaches 1:1 referrals on both sides
+async function addCashBackBonus(member_id, sp_A, sp_B, cash_back) {
+	const sideAReferralPoints = parseFloat(sp_A) ?? 0;
+	const sideBReferralPoints = parseFloat(sp_B) ?? 0;
+	const currentCashBackValue = cash_back ?? 0;
+
+	const isEligible = sideAReferralPoints === 1 && sideBReferralPoints === 1 && currentCashBackValue === 0;
+
+	if (isEligible) {
+		// Get starter plan data
+		const result = await db.query('SELECT * FROM products WHERE id = 1');
+		if (result.length <= 0) throw Error('Failed to add cash back bonus because plan data cannot be found.');
+
+		const planData = result[0];
+
+		// plan price is multiplied by 2 to select 1:1 referral points from both sp_A and sp_B sides
+		const bonus = planData.product_price * 2 * CASH_BACK_BONUS_PERCENTAGE;
+
+		await db.query('UPDATE fx_users SET cash_back = ? WHERE member_id = ?', [bonus, member_id]);
+	}
+}
+
 async function addReferralBonuses(member_id, sp_A, sp_B) {
 	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
 	const isEligible = eligibleReferralPoints >= 1;
@@ -74,7 +97,8 @@ async function addReferralBonuses(member_id, sp_A, sp_B) {
 		const updatedSpA = sp_A - eligibleReferralPoints;
 		const updatedSpB = sp_B - eligibleReferralPoints;
 
-		const bonus = eligibleReferralPoints * REFERRAL_POINT_USD_VALUE;
+		// Eligible referral bonus is multiplied by 2 to select referral points from both sp_A and sp_B sides
+		const bonus = eligibleReferralPoints * 2 * REFERRAL_POINT_USD_VALUE;
 
 		await db.query('UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ? WHERE member_id = ?', [
 			bonus,
@@ -105,16 +129,17 @@ async function addReferralPointsToParents(referral_points, current_user_id, pare
 
 		output.modifiedMembers.push(parent.member_id);
 
-		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
-		output.modifiedMembers.push(...data.modifiedMembers);
-		output.level = data.level;
-
 		const obj = {};
 		obj[referralPointsSide] = updatedReferralPoints;
 		obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
 
-		// TODO : Awaiting this will degrade performance
+		// ! Awaiting these will degrade performance
 		await addReferralBonuses(parent.member_id, obj.sp_A, obj.sp_B);
+		await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, parent.cash_back);
+
+		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
+		output.modifiedMembers.push(...data.modifiedMembers);
+		output.level = data.level;
 	}
 
 	return output;
