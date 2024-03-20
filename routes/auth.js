@@ -71,7 +71,7 @@ router.post('/login', async (req, res) => {
 					referralType: user.referral_type,
 					directSaleCommission: user.direct_sales,
 					binaryCommission: user.binary_commission,
-				
+					currentBalance: user.current_balance,
 				},
 			});
 		} else {

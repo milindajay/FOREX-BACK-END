@@ -21,6 +21,173 @@ function calculateTotalCharge(productPrice) {
 	return Math.ceil((productPrice + flatFee) / (1 - STRIPE_PROCESSING_FEE_PERCENTAGE));
 }
 
+// A one-time bonus when a member reaches 1:1 referrals on both sides
+async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_back) {
+	const sideAReferralPoints = parseFloat(sp_A) ?? 0;
+	const sideBReferralPoints = parseFloat(sp_B) ?? 0;
+	const currentCashBackValue = cash_back ?? 0;
+
+	const isEligible = sideAReferralPoints === 1 && sideBReferralPoints === 1 && currentCashBackValue === 0;
+
+	if (isEligible) {
+		// Get starter plan data
+		const result = await db.query('SELECT * FROM products WHERE id = 1');
+		if (result.length <= 0) throw Error('Failed to add cash back bonus because plan data cannot be found.');
+
+		const planData = result[0];
+
+		// plan price is multiplied by 2 to select 1:1 referral points from both sp_A and sp_B sides
+		const bonus = planData.product_price * 2 * CASH_BACK_BONUS_PERCENTAGE;
+
+		const currentBalance = current_balance ?? 0;
+		const updatedCurrentBalance = currentBalance + bonus;
+
+		await db.query('UPDATE fx_users SET cash_back = ?, current_balance = ? WHERE member_id = ?', [
+			bonus,
+			updatedCurrentBalance,
+			member_id,
+		]);
+
+		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
+			'Cash Back',
+			member_id,
+			bonus,
+		]);
+	}
+}
+
+async function addReferralBonuses(member_id, sp_A, sp_B, current_balance) {
+	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
+	const isEligible = eligibleReferralPoints >= 1;
+
+	const currentBalance = current_balance ?? 0;
+	if (isEligible) {
+		const updatedSpA = sp_A - eligibleReferralPoints;
+		const updatedSpB = sp_B - eligibleReferralPoints;
+
+		// Eligible referral bonus is multiplied by 2 to select referral points from both sp_A and sp_B sides
+		const bonus = eligibleReferralPoints * 2 * REFERRAL_POINT_USD_VALUE;
+
+		const updatedCurrentBalance = currentBalance + bonus;
+
+		await db.query(
+			'UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ?, current_balance = ? WHERE member_id = ?',
+			[bonus, updatedSpA, updatedSpB, updatedCurrentBalance, member_id]
+		);
+
+		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
+			'Binary Commission',
+			member_id,
+			bonus,
+		]);
+
+		return { updatedCurrentBalance, bonus, updatedSpA, updatedSpB };
+	}
+	return { updatedCurrentBalance: currentBalance, bonus: 0, updatedSpA: sp_A, updatedSpB: sp_B };
+}
+
+async function addReferralPointsToParents(referral_points, current_user_id, parentLinkingReferralType, level = 1) {
+	const output = { modifiedMembers: [], level };
+	const referralSide = parentLinkingReferralType === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
+	const referralPointsSide = parentLinkingReferralType === 'A' ? 'sp_A' : 'sp_B';
+	const otherReferralPointsSide = parentLinkingReferralType === 'B' ? 'sp_A' : 'sp_B';
+
+	const q = await db.query(`SELECT * FROM fx_users WHERE ${referralSide} = ?`, [current_user_id]);
+
+	if (q.length > 0) {
+		const parent = q[0];
+		const currentReferralPoints = parent[referralPointsSide] ?? 0;
+		const updatedReferralPoints = currentReferralPoints + referral_points;
+
+		await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
+			updatedReferralPoints,
+			parent.member_id,
+		]);
+
+		output.modifiedMembers.push(parent.member_id);
+
+		const obj = {};
+		obj[referralPointsSide] = updatedReferralPoints;
+		obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
+
+		// ! Awaiting these will degrade performance
+		const { updatedCurrentBalance } = await addReferralBonuses(
+			parent.member_id,
+			obj.sp_A,
+			obj.sp_B,
+			parent.current_balance
+		);
+		await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, updatedCurrentBalance, parent.cash_back);
+
+		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
+		output.modifiedMembers.push(...data.modifiedMembers);
+		output.level = data.level;
+	}
+
+	return output;
+}
+
+const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
+	const directCommission = parseInt(plan_price) * DIRECT_COMMISSION_PERCENTAGE;
+
+	const data = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [introducer_id]);
+	if (data.length <= 0) throw new Error('Introducer cannot be found when adding direct commission.');
+
+	const introducer = data[0];
+	const currentDirectSales = parseInt(introducer.direct_sales);
+	const updatedDirectSales = currentDirectSales + directCommission;
+
+	const currentBalance = introducer.current_balance ?? 0;
+	const updatedCurrentBalance = currentBalance + directCommission;
+
+	await db.query('UPDATE fx_users SET direct_sales = ?, current_balance = ? WHERE member_id = ?', [
+		updatedDirectSales,
+		updatedCurrentBalance,
+		introducer.member_id,
+	]);
+
+	await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
+		'Direct Sales Commission',
+		introducer_id,
+		directCommission,
+	]);
+};
+
+async function updatePaymentData(member_id, payment_intent, amount, plan) {
+	const q = await db.query('SELECT * FROM products WHERE id = ?', [plan]);
+	if (q.length <= 0) throw new Error('Plan with given id cannot be found.');
+
+	const planData = q[0];
+
+	const q1 = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [member_id]);
+	if (q1.length <= 0) throw new Error('User with given id cannot be found.');
+
+	const user = q1[0];
+
+	// TODO : More payment verification required
+
+	await db.query('UPDATE `fx_users` SET profile_status = ?, activation_date = NOW(), plan = ? WHERE member_id = ?', [
+		'Activated',
+		parseInt(plan),
+		parseInt(member_id),
+	]);
+	await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
+		parseFloat(amount),
+		payment_intent,
+		parseInt(member_id),
+		parseInt(plan),
+	]);
+
+	// if plan id equals to 1 (Starter plan), add the direct commission to the introducer.
+	if (parseInt(plan) === 1) await addDirectCommissionToIntroducer(user.introducer, planData.product_price);
+
+	const data = await addReferralPointsToParents(
+		parseInt(planData.referral_points),
+		parseInt(user.member_id),
+		user.referral_type
+	);
+}
+
 // Stripe payment endpoint
 router.get('/get-products/:currentPlan', async (req, res) => {
 	const { currentPlan } = req.params;
@@ -67,100 +234,6 @@ router.post('/create-payment-intent', async (req, res) => {
 	}
 });
 
-// A one-time bonus when a member reaches 1:1 referrals on both sides
-async function addCashBackBonus(member_id, sp_A, sp_B, cash_back) {
-	const sideAReferralPoints = parseFloat(sp_A) ?? 0;
-	const sideBReferralPoints = parseFloat(sp_B) ?? 0;
-	const currentCashBackValue = cash_back ?? 0;
-
-	const isEligible = sideAReferralPoints === 1 && sideBReferralPoints === 1 && currentCashBackValue === 0;
-
-	if (isEligible) {
-		// Get starter plan data
-		const result = await db.query('SELECT * FROM products WHERE id = 1');
-		if (result.length <= 0) throw Error('Failed to add cash back bonus because plan data cannot be found.');
-
-		const planData = result[0];
-
-		// plan price is multiplied by 2 to select 1:1 referral points from both sp_A and sp_B sides
-		const bonus = planData.product_price * 2 * CASH_BACK_BONUS_PERCENTAGE;
-
-		await db.query('UPDATE fx_users SET cash_back = ? WHERE member_id = ?', [bonus, member_id]);
-	}
-}
-
-async function addReferralBonuses(member_id, sp_A, sp_B) {
-	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
-	const isEligible = eligibleReferralPoints >= 1;
-
-	if (isEligible) {
-		const updatedSpA = sp_A - eligibleReferralPoints;
-		const updatedSpB = sp_B - eligibleReferralPoints;
-
-		// Eligible referral bonus is multiplied by 2 to select referral points from both sp_A and sp_B sides
-		const bonus = eligibleReferralPoints * 2 * REFERRAL_POINT_USD_VALUE;
-
-		await db.query('UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ? WHERE member_id = ?', [
-			bonus,
-			updatedSpA,
-			updatedSpB,
-			member_id,
-		]);
-	}
-}
-
-async function addReferralPointsToParents(referral_points, current_user_id, parentLinkingReferralType, level = 1) {
-	const output = { modifiedMembers: [], level };
-	const referralSide = parentLinkingReferralType === 'A' ? 'referral_side_A_member_id' : 'referral_side_B_member_id';
-	const referralPointsSide = parentLinkingReferralType === 'A' ? 'sp_A' : 'sp_B';
-	const otherReferralPointsSide = parentLinkingReferralType === 'B' ? 'sp_A' : 'sp_B';
-
-	const q = await db.query(`SELECT * FROM fx_users WHERE ${referralSide} = ?`, [current_user_id]);
-
-	if (q.length > 0) {
-		const parent = q[0];
-		const currentReferralPoints = parent[referralPointsSide] ?? 0;
-		const updatedReferralPoints = currentReferralPoints + referral_points;
-
-		await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
-			updatedReferralPoints,
-			parent.member_id,
-		]);
-
-		output.modifiedMembers.push(parent.member_id);
-
-		const obj = {};
-		obj[referralPointsSide] = updatedReferralPoints;
-		obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
-
-		// ! Awaiting these will degrade performance
-		await addReferralBonuses(parent.member_id, obj.sp_A, obj.sp_B);
-		await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, parent.cash_back);
-
-		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
-		output.modifiedMembers.push(...data.modifiedMembers);
-		output.level = data.level;
-	}
-
-	return output;
-}
-
-const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
-	const directCommission = parseInt(plan_price) * DIRECT_COMMISSION_PERCENTAGE;
-
-	const data = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [introducer_id]);
-	if (data.length <= 0) throw new Error('Introducer cannot be found when adding direct commission.');
-
-	const introducer = data[0];
-	const currentDirectSales = parseInt(introducer.direct_sales);
-	const updatedDirectSales = currentDirectSales + directCommission;
-
-	await db.query('UPDATE fx_users SET direct_sales = ? WHERE member_id = ?', [
-		updatedDirectSales,
-		introducer.member_id,
-	]);
-};
-
 router.get('/verify-payment', async (req, res) => {
 	const {
 		payment_intent,
@@ -175,73 +248,102 @@ router.get('/verify-payment', async (req, res) => {
 	} = req.query;
 
 	try {
-		const q = await db.query('SELECT * FROM products WHERE id = ?', [plan]);
-		if (q.length <= 0) throw new Error('Plan with given id cannot be found.');
+		await updatePaymentData(member_id, payment_intent, amount, plan);
 
-		const planData = q[0];
-
-		const q1 = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [member_id]);
-		if (q1.length <= 0) throw new Error('User with given id cannot be found.');
-
-		const user = q1[0];
-
-		// if plan id equals to 1 (Starter plan), add the direct commission to the introducer.
-		if (parseInt(plan) === 1) addDirectCommissionToIntroducer(user.introducer, planData.product_price);
-
-		// TODO : More payment verification required
-
-		await db.query('UPDATE `fx_users` SET profile_status = ?, activation_date = NOW(), plan = ? WHERE member_id = ?', [
-			'Activated',
-			parseInt(plan),
-			parseInt(member_id),
-		]);
-		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
-			parseFloat(amount),
-			payment_intent,
-			parseInt(member_id),
-			parseInt(plan),
-		]);
-
-		const data = await addReferralPointsToParents(
-			parseInt(planData.referral_points),
-			parseInt(user.member_id),
-			user.referral_type
-		);
-
-		res.json({ success: true, ...data });
+		res.json({ success: true });
 	} catch (error) {
 		console.error(error);
 		res.json({ status: 500, message: error.message });
 	}
 });
 
-router.post('/verify-binance-payment', async (req, res) => {
-	const { trx, member_id, amount, plan_id } = req.body;
-
-	const mailOptions = {
-		from: process.env.SMTP_USER,
-		to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
-		cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
-		subject: 'Verify Binance Payment',
-		html: `<p>You have received a Payment of  ${amount} USD from ${member_id}, Transaction ID is ${trx}. Plan ${plan_id}</p>`,
-	};
-
+router.get('/verify-binance-payment', async (req, res) => {
 	try {
-		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
-			parseFloat(amount),
-			trx,
-			parseInt(member_id),
-			parseInt(plan_id),
-		]);
+		const { transaction_id, member_id, amount, plan_id, accepted } = req.query;
 
-		await transporter.sendMail(mailOptions);
+		if (
+			transaction_id === undefined ||
+			member_id === undefined ||
+			amount === undefined ||
+			plan_id === undefined ||
+			accepted === undefined
+		)
+			throw new Error('Required request query attributes not found.');
+
+		if (accepted === 'true') await updatePaymentData(member_id, transaction_id, amount, plan_id);
+		else {
+			const mailOptions = {
+				from: process.env.SMTP_USER,
+				to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
+				cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
+				subject: 'Payment Rejection Notification',
+				html: `
+				<p>We regret to inform you that your recent payment attempt has been rejected. Here are the details of the transaction:</p>
+
+				<ul>
+					<li>Amount: ${amount}</li>
+					<li>Member ID: ${member_id}</li>
+					<li>Transaction ID: ${transaction_id}</li>
+				</ul>
+
+				<p>To resolve this issue and proceed with your account activation, please check your payment information for any inaccuracies or consider using an alternative payment method.</p>
+
+				<p>For further assistance or to discuss other payment options, please feel free to contact our support team at <a href="mailto:support@forexcellencenet.com">support@forexcellencenet.com</a>.
+
+				<p>We appreciate your prompt attention to this matter and look forward to assisting you.</p>
+				<br/>
+				<br/>
+				<p>Best regards,</p>
+				<p>Forexcellence Team</p>
+				`,
+			};
+
+			transporter.sendMail(mailOptions);
+			logger.info('payment rejection email sent.');
+			res.json({ success: true });
+		}
+	} catch (error) {
+		logger.error('Failed to send payment rejection email:', error);
+		res.status(500).json({ success: false, message: error.message });
+	}
+});
+
+router.post('/binance-payment-completed', async (req, res) => {
+	try {
+		const { trx, member_id, amount, plan_id } = req.body;
+
+		if (trx === undefined || member_id === undefined || amount === undefined || plan_id === undefined)
+			throw new Error('Required request body attributes not found.');
+
+		const serverUrl = new URL(`${req.protocol}:\/\/${req.get('host')}${req.originalUrl}`);
+		const acceptVerificationLink = `${serverUrl.origin}api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=true`;
+		const rejectVerificationLink = `${serverUrl.origin}api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=false`;
+
+		const mailOptions = {
+			from: process.env.SMTP_USER,
+			to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
+			cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
+			subject: 'Verify Binance Payment',
+			html: `
+			<p>You have received a Payment of ${amount} USD from ${member_id}, Transaction ID is ${trx}. Plan ${plan_id}</p>
+			<br/>
+			<br/>
+			<p>To Verify Payment, click here : <a href="${acceptVerificationLink}">${acceptVerificationLink}</a></p>
+			<p>To Reject Payment, click here : <a href="${rejectVerificationLink}">${rejectVerificationLink}</a></p>`,
+		};
+
+		const data = await db.query(
+			'INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)',
+			[parseFloat(amount), trx, parseInt(member_id), parseInt(plan_id)]
+		);
+
+		transporter.sendMail(mailOptions);
 		logger.info('Email to verify binance payment sent.');
+		res.json({ success: true });
 	} catch (error) {
 		logger.error('Failed to send email to verify binance payment:', error);
-		throw new Error('Failed to send email to verify binance payment');
+		res.status(500).json({ success: false, message: error.message });
 	}
-	// console.log('Binance', { ...req.body });
-	res.json({ success: true });
 });
 
 // Binance Pay payment endpoint (Corrected and updated version)
@@ -250,9 +352,9 @@ router.post('/binancepay', async (req, res) => {
 	const apiKey = process.env.BINANCE_PAY_CERTIFICATE_SN;
 	const secretKey = process.env.BINANCE_PAY_SECRET_KEY;
 
-	const headers = generateBinancePayHeaders(apiKey, secretKey, requestBody);
-
 	try {
+		const headers = generateBinancePayHeaders(apiKey, secretKey, requestBody);
+
 		// Ensure you're using the correct Binance Pay URL and endpoint
 		const response = await axios.post('https://bpay.binanceapi.com/binancepay/openapi/v1/order', requestBody, {
 			headers,
