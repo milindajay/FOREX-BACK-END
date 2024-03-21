@@ -161,9 +161,7 @@ const getReferralTree = async (memberId) => {
 		[memberId]
 	);
 
-	if (rootMembers.length === 0) {
-		throw new Error('Root member not found.');
-	}
+	if (rootMembers.length === 0) return [];
 
 	const rootMember = rootMembers[0];
 	// Calculate referral points for the root member
