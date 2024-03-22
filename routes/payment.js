@@ -137,23 +137,25 @@ const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
 	if (data.length <= 0) throw new Error('Introducer cannot be found when adding direct commission.');
 
 	const introducer = data[0];
-	const currentDirectSales = parseInt(introducer.direct_sales);
-	const updatedDirectSales = currentDirectSales + directCommission;
+	if (introducer.profile_status === 'Activated') {
+		const currentDirectSales = parseInt(introducer.direct_sales);
+		const updatedDirectSales = currentDirectSales + directCommission;
 
-	const currentBalance = introducer.current_balance ?? 0;
-	const updatedCurrentBalance = currentBalance + directCommission;
+		const currentBalance = introducer.current_balance ?? 0;
+		const updatedCurrentBalance = currentBalance + directCommission;
 
-	await db.query('UPDATE fx_users SET direct_sales = ?, current_balance = ? WHERE member_id = ?', [
-		updatedDirectSales,
-		updatedCurrentBalance,
-		introducer.member_id,
-	]);
+		await db.query('UPDATE fx_users SET direct_sales = ?, current_balance = ? WHERE member_id = ?', [
+			updatedDirectSales,
+			updatedCurrentBalance,
+			introducer.member_id,
+		]);
 
-	await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
-		'Direct Sales Commission',
-		introducer_id,
-		directCommission,
-	]);
+		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
+			'Direct Sales Commission',
+			introducer_id,
+			directCommission,
+		]);
+	}
 };
 
 async function updatePaymentData(member_id, payment_intent, amount, plan, paymentMethod = 'STRIPE') {
