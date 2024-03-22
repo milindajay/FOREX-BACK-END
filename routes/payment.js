@@ -153,7 +153,7 @@ const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
 	]);
 };
 
-async function updatePaymentData(member_id, payment_intent, amount, plan) {
+async function updatePaymentData(member_id, payment_intent, amount, plan, paymentMethod = 'STRIPE') {
 	const q = await db.query('SELECT * FROM products WHERE id = ?', [plan]);
 	if (q.length <= 0) throw new Error('Plan with given id cannot be found.');
 
@@ -171,12 +171,14 @@ async function updatePaymentData(member_id, payment_intent, amount, plan) {
 		parseInt(plan),
 		parseInt(member_id),
 	]);
-	await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
-		parseFloat(amount),
-		payment_intent,
-		parseInt(member_id),
-		parseInt(plan),
-	]);
+	if (paymentMethod === 'STRIPE') {
+		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
+			parseFloat(amount),
+			payment_intent,
+			parseInt(member_id),
+			parseInt(plan),
+		]);
+	}
 
 	// if plan id equals to 1 (Starter plan), add the direct commission to the introducer.
 	if (parseInt(plan) === 1) await addDirectCommissionToIntroducer(user.introducer, planData.product_price);
@@ -270,7 +272,7 @@ router.get('/verify-binance-payment', async (req, res) => {
 		)
 			throw new Error('Required request query attributes not found.');
 
-		if (accepted === 'true') await updatePaymentData(member_id, transaction_id, amount, plan_id);
+		if (accepted === 'true') await updatePaymentData(member_id, transaction_id, amount, plan_id, 'BINANCE');
 		else {
 			const mailOptions = {
 				from: process.env.SMTP_USER,
