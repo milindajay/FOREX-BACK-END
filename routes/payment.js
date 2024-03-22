@@ -316,8 +316,8 @@ router.post('/binance-payment-completed', async (req, res) => {
 			throw new Error('Required request body attributes not found.');
 
 		const serverUrl = new URL(`${req.protocol}:\/\/${req.get('host')}${req.originalUrl}`);
-		const acceptVerificationLink = `${serverUrl.origin}api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=true`;
-		const rejectVerificationLink = `${serverUrl.origin}api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=false`;
+		const acceptVerificationLink = `${serverUrl.origin}/api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=true`;
+		const rejectVerificationLink = `${serverUrl.origin}/api/payment/verify-binance-payment?transaction_id=${trx}&member_id=${member_id}&amount=${amount}&plan_id=${plan_id}&accepted=false`;
 
 		const mailOptions = {
 			from: process.env.SMTP_USER,
