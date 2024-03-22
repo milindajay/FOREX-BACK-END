@@ -27,7 +27,7 @@ async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_bac
 	const sideBReferralPoints = parseFloat(sp_B) ?? 0;
 	const currentCashBackValue = cash_back ?? 0;
 
-	const isEligible = sideAReferralPoints === 1 && sideBReferralPoints === 1 && currentCashBackValue === 0;
+	const isEligible = sideAReferralPoints >= 1 && sideBReferralPoints >= 1 && currentCashBackValue === 0;
 
 	if (isEligible) {
 		// Get starter plan data
@@ -96,28 +96,31 @@ async function addReferralPointsToParents(referral_points, current_user_id, pare
 
 	if (q.length > 0) {
 		const parent = q[0];
-		const currentReferralPoints = parent[referralPointsSide] ?? 0;
-		const updatedReferralPoints = currentReferralPoints + referral_points;
 
-		await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
-			updatedReferralPoints,
-			parent.member_id,
-		]);
+		if (parent.profile_status === 'Activated') {
+			const currentReferralPoints = parent[referralPointsSide] ?? 0;
+			const updatedReferralPoints = currentReferralPoints + referral_points;
 
-		output.modifiedMembers.push(parent.member_id);
+			await db.query(`UPDATE fx_users SET ${referralPointsSide} = ? WHERE member_id = ?`, [
+				updatedReferralPoints,
+				parent.member_id,
+			]);
 
-		const obj = {};
-		obj[referralPointsSide] = updatedReferralPoints;
-		obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
+			output.modifiedMembers.push(parent.member_id);
 
-		// ! Awaiting these will degrade performance
-		const { updatedCurrentBalance } = await addReferralBonuses(
-			parent.member_id,
-			obj.sp_A,
-			obj.sp_B,
-			parent.current_balance
-		);
-		await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, updatedCurrentBalance, parent.cash_back);
+			const obj = {};
+			obj[referralPointsSide] = updatedReferralPoints;
+			obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
+
+			// ! Awaiting these will degrade performance
+			const { updatedCurrentBalance } = await addReferralBonuses(
+				parent.member_id,
+				obj.sp_A,
+				obj.sp_B,
+				parent.current_balance
+			);
+			await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, updatedCurrentBalance, parent.cash_back);
+		}
 
 		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
 		output.modifiedMembers.push(...data.modifiedMembers);
