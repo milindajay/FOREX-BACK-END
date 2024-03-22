@@ -325,7 +325,7 @@ router.post('/binance-payment-completed', async (req, res) => {
 			cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
 			subject: 'Verify Binance Payment',
 			html: `
-			<p>You have received a Payment of ${amount} USD from ${member_id}, Transaction ID is ${trx}. Plan ${plan_id}</p>
+			<p>You have received a Payment of ${amount} USDT from ${member_id}, Transaction ID is ${trx}. Plan ${plan_id}</p>
 			<br/>
 			<br/>
 			<p>To Verify Payment, click here : <a href="${acceptVerificationLink}">${acceptVerificationLink}</a></p>
