@@ -56,7 +56,7 @@ async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_bac
 	}
 }
 
-async function addReferralBonuses(member_id, sp_A, sp_B, current_balance) {
+async function addReferralBonuses(member_id, sp_A, sp_B, current_balance, binary_commission) {
 	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
 	const isEligible = eligibleReferralPoints >= 1;
 
@@ -69,10 +69,11 @@ async function addReferralBonuses(member_id, sp_A, sp_B, current_balance) {
 		const bonus = eligibleReferralPoints * 2 * REFERRAL_POINT_USD_VALUE;
 
 		const updatedCurrentBalance = currentBalance + bonus;
+		const updatedBinaryComission = binary_commission + bonus;
 
 		await db.query(
 			'UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ?, current_balance = ? WHERE member_id = ?',
-			[bonus, updatedSpA, updatedSpB, updatedCurrentBalance, member_id]
+			[updatedBinaryComission, updatedSpA, updatedSpB, updatedCurrentBalance, member_id]
 		);
 
 		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
@@ -117,7 +118,8 @@ async function addReferralPointsToParents(referral_points, current_user_id, pare
 				parent.member_id,
 				obj.sp_A,
 				obj.sp_B,
-				parent.current_balance
+				parent.current_balance,
+				parent.binary_commission
 			);
 			await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, updatedCurrentBalance, parent.cash_back);
 		}
@@ -176,12 +178,14 @@ async function updatePaymentData(member_id, payment_intent, amount, plan, paymen
 		parseInt(plan),
 		parseInt(member_id),
 	]);
+
 	if (paymentMethod === 'STRIPE') {
-		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)', [
+		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan, status) VALUES (?, ?, ?, ?, ?)', [
 			parseFloat(amount),
 			payment_intent,
 			parseInt(member_id),
 			parseInt(plan),
+			'Verified',
 		]);
 	}
 
