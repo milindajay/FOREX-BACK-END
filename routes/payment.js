@@ -272,8 +272,27 @@ router.get('/verify-binance-payment', async (req, res) => {
 		)
 			throw new Error('Required request query attributes not found.');
 
-		if (accepted === 'true') await updatePaymentData(member_id, transaction_id, amount, plan_id, 'BINANCE');
-		else {
+		const q = await db.query('SELECT * FROM transactions WHERE payment_intent= ?', [transaction_id]);
+		if (q.length <= 0)
+			return res.status(404).json({ success: false, message: 'A transaction with the given transation id not found.' });
+
+		const selectedTransaction = q[0];
+		if (selectedTransaction.status !== 'Pending')
+			return res.status(422).json({ success: false, message: 'Selected transaction is already verified or rejected.' });
+
+		if (accepted === 'true') {
+			await db.query('UPDATE transactions SET status = ? WHERE payment_intent= ?', [
+				'Verified',
+				selectedTransaction.payment_intent,
+			]);
+
+			await updatePaymentData(member_id, transaction_id, amount, plan_id, 'BINANCE');
+			res.json({ success: true });
+		} else {
+			await db.query('UPDATE transactions SET status = ? WHERE payment_intent= ?', [
+				'Rejected',
+				selectedTransaction.payment_intent,
+			]);
 			const mailOptions = {
 				from: process.env.SMTP_USER,
 				to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
@@ -305,7 +324,7 @@ router.get('/verify-binance-payment', async (req, res) => {
 			res.json({ success: true });
 		}
 	} catch (error) {
-		logger.error('Failed to send payment rejection email:', error);
+		logger.error('Failed to verify binance payment:', error);
 		res.status(500).json({ success: false, message: error.message });
 	}
 });
@@ -334,10 +353,13 @@ router.post('/binance-payment-completed', async (req, res) => {
 			<p>To Reject Payment, click here : <a href="${rejectVerificationLink}">${rejectVerificationLink}</a></p>`,
 		};
 
-		const data = await db.query(
-			'INSERT INTO transactions(amount, payment_intent, member_id, plan) VALUES (?, ?, ?, ?)',
-			[parseFloat(amount), trx, parseInt(member_id), parseInt(plan_id)]
-		);
+		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan, status) VALUES (?, ?, ?, ?, ?)', [
+			parseFloat(amount),
+			trx,
+			parseInt(member_id),
+			parseInt(plan_id),
+			'Pending',
+		]);
 
 		transporter.sendMail(mailOptions);
 		logger.info('Email to verify binance payment sent.');
