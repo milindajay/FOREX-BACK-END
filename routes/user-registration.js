@@ -93,7 +93,7 @@ router.post('/register', async (req, res) => {
 		const hashedPassword = await bcrypt.hash(password, 10);
 		const member_id = await generateMemberId(); // Ensure this aligns with your ID generation logic
 		const verificationToken = generateVerificationToken(email);
-		const parentMemberId = await linkMemberToAParentNode(referral_type, member_id, parseInt(introducer));
+		const parentMemberId = await linkMemberToAParentNode(referral_type, member_id, introducer);
 
 		// Insert the new user into the database, now including referral_type
 		const q = await query(

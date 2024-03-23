@@ -30,16 +30,38 @@ function query(sql, params) {
 	});
 }
 
+// async function generateMemberId() {
+// 	try {
+// 		const results = await query('SELECT MAX(member_id) AS maxId FROM `fx_users`');
+// 		const maxId = results.length > 0 ? results[0].maxId : null;
+// 		return maxId ? maxId + 1 : 7500;
+// 	} catch (error) {
+// 		logger.error('Error in generateMemberId:', error);
+// 		throw error;
+// 	}
+// }
+
 async function generateMemberId() {
-	try {
-		const results = await query('SELECT MAX(member_id) AS maxId FROM `fx_users`');
-		const maxId = results.length > 0 ? results[0].maxId : null;
-		return maxId ? maxId + 1 : 7500;
-	} catch (error) {
-		logger.error('Error in generateMemberId:', error);
-		throw error;
-	}
+    const generateId = () => {
+        // Generates a 6-character random string (alphanumeric)
+        return crypto.randomBytes(3).toString('hex').toUpperCase();
+    };
+
+    const idExists = async (id) => {
+        // Checks if the generated ID already exists in the database
+        const queryResult = await query('SELECT COUNT(*) AS count FROM `fx_users` WHERE member_id = ?', [id]);
+        return queryResult[0].count > 0;
+    };
+
+    let uniqueId = generateId();
+    // Keep generating a new ID until a unique one is found
+    while (await idExists(uniqueId)) {
+        uniqueId = generateId();
+    }
+
+    return uniqueId;
 }
+
 
 function generateVerificationToken(email) {
 	try {
