@@ -72,6 +72,8 @@ router.post('/login', async (req, res) => {
 					directSaleCommission: user.direct_sales,
 					binaryCommission: user.binary_commission,
 					currentBalance: user.current_balance,
+					totalEarnings: user.total_earnings,
+					totalWithdrawals: user.total_withdrawals,
 				},
 			});
 		} else {

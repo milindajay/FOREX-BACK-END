@@ -75,6 +75,11 @@ router.post('/register', async (req, res) => {
 			referral_type, // Capture the referral type from the request
 		} = req.body;
 
+		const isRequiredAttributesAvailable =
+			introducer && firstName && lastName && email && password && referral_type && nationalIdentityNumber;
+		if (!isRequiredAttributesAvailable)
+			return res.status(400).json({ success: false, message: 'Required attributes cannot be empty.' });
+
 		// Check for duplicate email or national identity number
 		const existingUserCheck = await query(
 			'SELECT * FROM `fx_users` WHERE `email` = ? OR `national_identity_number` = ? LIMIT 1',

@@ -22,7 +22,7 @@ function calculateTotalCharge(productPrice) {
 }
 
 // A one-time bonus when a member reaches 1:1 referrals on both sides
-async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_back) {
+async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_back, total_earnings) {
 	const sideAReferralPoints = parseFloat(sp_A) ?? 0;
 	const sideBReferralPoints = parseFloat(sp_B) ?? 0;
 	const currentCashBackValue = cash_back ?? 0;
@@ -42,9 +42,13 @@ async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_bac
 		const currentBalance = current_balance ?? 0;
 		const updatedCurrentBalance = currentBalance + bonus;
 
-		await db.query('UPDATE fx_users SET cash_back = ?, current_balance = ? WHERE member_id = ?', [
+		const totalEarnings = total_earnings ?? 0;
+		const updatedTotalEarnings = totalEarnings + bonus;
+
+		await db.query('UPDATE fx_users SET cash_back = ?, current_balance = ?, total_earnings = ? WHERE member_id = ?', [
 			bonus,
 			updatedCurrentBalance,
+			updatedTotalEarnings,
 			member_id,
 		]);
 
@@ -56,11 +60,12 @@ async function addCashBackBonus(member_id, sp_A, sp_B, current_balance, cash_bac
 	}
 }
 
-async function addReferralBonuses(member_id, sp_A, sp_B, current_balance, binary_commission) {
+async function addReferralBonuses(member_id, sp_A, sp_B, current_balance, binary_commission, total_earnings) {
 	const eligibleReferralPoints = Math.floor(Math.min(parseFloat(sp_A), parseFloat(sp_B)));
 	const isEligible = eligibleReferralPoints >= 1;
 
 	const currentBalance = current_balance ?? 0;
+	const totalEarnings = total_earnings ?? 0;
 	if (isEligible) {
 		const updatedSpA = sp_A - eligibleReferralPoints;
 		const updatedSpB = sp_B - eligibleReferralPoints;
@@ -71,9 +76,11 @@ async function addReferralBonuses(member_id, sp_A, sp_B, current_balance, binary
 		const updatedCurrentBalance = currentBalance + bonus;
 		const updatedBinaryComission = binary_commission + bonus;
 
+		const updatedTotalEarnings = totalEarnings + bonus;
+
 		await db.query(
-			'UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ?, current_balance = ? WHERE member_id = ?',
-			[updatedBinaryComission, updatedSpA, updatedSpB, updatedCurrentBalance, member_id]
+			'UPDATE fx_users SET binary_commission = ?, sp_A = ?, sp_B = ?, current_balance = ?, total_earnings = ? WHERE member_id = ?',
+			[updatedBinaryComission, updatedSpA, updatedSpB, updatedCurrentBalance, updatedTotalEarnings, member_id]
 		);
 
 		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
@@ -82,9 +89,15 @@ async function addReferralBonuses(member_id, sp_A, sp_B, current_balance, binary
 			bonus,
 		]);
 
-		return { updatedCurrentBalance, bonus, updatedSpA, updatedSpB };
+		return { updatedCurrentBalance, updatedTotalEarnings, bonus, updatedSpA, updatedSpB };
 	}
-	return { updatedCurrentBalance: currentBalance, bonus: 0, updatedSpA: sp_A, updatedSpB: sp_B };
+	return {
+		updatedCurrentBalance: currentBalance,
+		updatedTotalEarnings: totalEarnings,
+		bonus: 0,
+		updatedSpA: sp_A,
+		updatedSpB: sp_B,
+	};
 }
 
 async function addReferralPointsToParents(referral_points, current_user_id, parentLinkingReferralType, level = 1) {
@@ -114,14 +127,22 @@ async function addReferralPointsToParents(referral_points, current_user_id, pare
 			obj[otherReferralPointsSide] = parent[otherReferralPointsSide] ?? 0;
 
 			// ! Awaiting these will degrade performance
-			const { updatedCurrentBalance } = await addReferralBonuses(
+			const { updatedCurrentBalance, updatedTotalEarnings } = await addReferralBonuses(
 				parent.member_id,
 				obj.sp_A,
 				obj.sp_B,
 				parent.current_balance,
-				parent.binary_commission
+				parent.binary_commission,
+				parent.total_earnings
 			);
-			await addCashBackBonus(parent.member_id, obj.sp_A, obj.sp_B, updatedCurrentBalance, parent.cash_back);
+			await addCashBackBonus(
+				parent.member_id,
+				obj.sp_A,
+				obj.sp_B,
+				updatedCurrentBalance,
+				parent.cash_back,
+				updatedTotalEarnings
+			);
 		}
 
 		const data = await addReferralPointsToParents(referral_points, parent.member_id, parent.referral_type, level + 1);
@@ -146,11 +167,13 @@ const addDirectCommissionToIntroducer = async (introducer_id, plan_price) => {
 		const currentBalance = introducer.current_balance ?? 0;
 		const updatedCurrentBalance = currentBalance + directCommission;
 
-		await db.query('UPDATE fx_users SET direct_sales = ?, current_balance = ? WHERE member_id = ?', [
-			updatedDirectSales,
-			updatedCurrentBalance,
-			introducer.member_id,
-		]);
+		const totalEarnings = introducer.total_earnings ?? 0;
+		const updatedTotalEarnings = totalEarnings + directCommission;
+
+		await db.query(
+			'UPDATE fx_users SET direct_sales = ?, current_balance = ?, total_earnings = ? WHERE member_id = ?',
+			[updatedDirectSales, updatedCurrentBalance, updatedTotalEarnings, introducer.member_id]
+		);
 
 		await db.query('INSERT INTO sales_summary(commission_type, member_id, amount) VALUES (?, ?, ?)', [
 			'Direct Sales Commission',
@@ -298,14 +321,19 @@ router.get('/verify-binance-payment', async (req, res) => {
 			await updatePaymentData(member_id, transaction_id, amount, plan_id, 'BINANCE');
 			res.json({ success: true });
 		} else {
+			const q = await db.query('SELECT email FROM fx_users WHERE member_id = ?', [member_id]);
+			if (q.length <= 0)
+				throw new Error('Failed to reject binance payment. User with given member_id cannot be found.');
+
+			const user = q[0];
+
 			await db.query('UPDATE transactions SET status = ? WHERE payment_intent= ?', [
 				'Rejected',
 				selectedTransaction.payment_intent,
 			]);
 			const mailOptions = {
 				from: process.env.SMTP_USER,
-				to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
-				cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
+				to: user.email,
 				subject: 'Payment Rejection Notification',
 				html: `
 				<p>We regret to inform you that your recent payment attempt has been rejected. Here are the details of the transaction:</p>
@@ -316,7 +344,7 @@ router.get('/verify-binance-payment', async (req, res) => {
 					<li>Transaction ID: ${transaction_id}</li>
 				</ul>
 
-				<p>To resolve this issue and proceed with your account activation, please check your payment information for any inaccuracies or consider using an alternative payment method.</p>
+				<p>To resolve this issue, please check your payment information for any inaccuracies or consider using an alternative payment method.</p>
 
 				<p>For further assistance or to discuss other payment options, please feel free to contact our support team at <a href="mailto:support@forexcellencenet.com">support@forexcellencenet.com</a>.
 
@@ -375,6 +403,134 @@ router.post('/binance-payment-completed', async (req, res) => {
 		res.json({ success: true });
 	} catch (error) {
 		logger.error('Failed to send email to verify binance payment:', error);
+		res.status(500).json({ success: false, message: error.message });
+	}
+});
+
+router.get('/complete-withdrawal-request', async (req, res) => {
+	const { transaction_id, member_id, withdrawal_amount, wallet_address, accepted } = req.query;
+
+	try {
+		if (
+			transaction_id === undefined &&
+			member_id === undefined &&
+			withdrawal_amount === undefined &&
+			wallet_address === undefined &&
+			accepted === undefined
+		)
+			return res.status(400).json({ success: false, message: 'Required paramters cannot be empty' });
+
+		const q = await db.query('SELECT * FROM withdrawals WHERE id = ?', [transaction_id]);
+		if (q.length <= 0)
+			return res.status(400).json({ success: false, message: 'Withdrawal request with given id cannot be found.' });
+
+		const withdrawalRequest = q[0];
+
+		if (withdrawalRequest.status !== 'Pending')
+			return res
+				.status(422)
+				.json({ success: false, message: 'Selected withdrawal request is already verified or rejected.' });
+
+		const q1 = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [member_id]);
+		if (q1.length <= 0)
+			return res.status(400).json({ success: false, message: 'User with given member_id cannot be found.' });
+
+		const user = q1[0];
+
+		const mailOptions = {
+			from: process.env.SMTP_USER,
+			to: user.email,
+			subject: 'Withdrawal Request completed',
+			html: `
+				<p>Dear ${user.first_name}</p>
+
+				<p>Your withdrawal request of USDT ${withdrawalRequest.amount} has been completed.</p>
+
+				<br/>
+				<br/>
+				<p>Best regards,</p>
+				<p>Forexcellence Team</p>
+				`,
+		};
+
+		transporter.sendMail(mailOptions);
+
+		await db.query('UPDATE withdrawals SET status = ? WHERE id = ?', ['Completed', transaction_id]);
+
+		return res.json({ success: true });
+	} catch (error) {
+		logger.error('Failed to complete withdrawal request:', error);
+		res.status(500).json({ success: false, message: error.message });
+	}
+});
+
+router.post('/withdraw', async (req, res) => {
+	const { member_id, withdrawalAmount, walletAddress } = req.body;
+
+	try {
+		if (member_id === undefined || withdrawalAmount === undefined || walletAddress === undefined)
+			return res.status(400).json({ message: 'Required attributes cannot be empty' });
+
+		const totalWithdrawalAmount = withdrawalAmount * (106 / 100);
+
+		const q = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [member_id]);
+		if (q.length <= 0)
+			return res.status(404).json({ success: false, message: 'User with given member id cannot be found.' });
+
+		const user = q[0];
+		const currentBalance = user.current_balance ?? 0;
+		const currentTotalWithdrawals = user.total_withdrawals ?? 0;
+
+		if (currentBalance <= totalWithdrawalAmount)
+			return res
+				.status(400)
+				.json({ message: 'You cannot enter a withdrawal amount equal or lesser than the current balance.' });
+
+		const updatedCurrentBalance = currentBalance - withdrawalAmount;
+		const updatedTotalWithdrawals = currentTotalWithdrawals + withdrawalAmount;
+
+		const result = await db.query(
+			'INSERT INTO withdrawals(member_id, amount, status, wallet_address) VALUES (?, ?, ?, ?)',
+			[member_id, withdrawalAmount, 'Pending', walletAddress]
+		);
+
+		const serverUrl = new URL(`${req.protocol}:\/\/${req.get('host')}${req.originalUrl}`);
+		const acceptVerificationLink = `${serverUrl.origin}/api/payment/complete-withdrawal-request?transaction_id=${result.insertId}&member_id=${member_id}&withdrawal_amount=${withdrawalAmount}&wallet_address=${walletAddress}&accepted=true`;
+
+		const mailOptions = {
+			from: process.env.SMTP_USER,
+			to: process.env.BINANCE_PAYMENT_VERIFY_EMAIL,
+			cc: [process.env.BINANCE_PAYMENT_SECOND_VERIFY_EMAIL],
+			subject: `Withdrawal Request from ${user.first_name} - ID ${member_id}`,
+			html: `
+				<p>You have received withdrawal request of ${withdrawalAmount.toFixed(5)} USD from ${user.first_name} ${
+				user.last_name
+			} - Member ID ${member_id}. Details as follows</p>
+
+				<ul>
+					<li>Withdrawal Amount: ${withdrawalAmount.toFixed(5)} USD (${totalWithdrawalAmount.toFixed(
+				5
+			)} USD including withdrawal charges)</li>
+					<li>Member ID: ${member_id}</li>
+					<li>Wallet Address: ${walletAddress}</li>
+					<li>Transaction ID: ${result.insertId}</li>
+					<li>Current Wallet Balance: ${currentBalance}</li>
+				</ul>
+
+				<p>Click below link to complete withdrawal request</p>
+				<a href="${acceptVerificationLink}">Complete Withdrawal Request</a>.`,
+		};
+
+		await db.query('UPDATE fx_users SET current_balance = ?, total_withdrawals = ? WHERE member_id = ?', [
+			updatedCurrentBalance,
+			updatedTotalWithdrawals,
+			member_id,
+		]);
+
+		transporter.sendMail(mailOptions);
+		res.json({ success: true });
+	} catch (error) {
+		logger.error('Failed to complete the withdraw request:', error);
 		res.status(500).json({ success: false, message: error.message });
 	}
 });
