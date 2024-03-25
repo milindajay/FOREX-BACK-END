@@ -3,6 +3,7 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../database'); // Adjust the path as necessary
 const { logger } = require('../utilities/logger');
+const { isAuthenticated } = require('../middleware/isAuthenticated');
 
 const router = express.Router();
 
@@ -40,18 +41,18 @@ router.post('/login', async (req, res) => {
 
 		if (match) {
 			// Generate JWT
-			const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+			const token = jwt.sign({ id: user.member_id, role: user.user_role }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
 			res.send({
 				message: 'Login successful',
 				token,
+				currentPlanData,
 				...{
 					email: user.email,
 					id: user.member_id,
 					firstName: user.first_name,
 					lastName: user.last_name,
 					role: user.user_role,
-					token,
 					username: user.first_name,
 					profile_status: user.profile_status,
 					mobileNumber: user.mobile_number,
@@ -67,7 +68,6 @@ router.post('/login', async (req, res) => {
 					firstSalesAmount: user.first_sale_amount,
 					cashBack: user.cash_back,
 					currentPlan: user.plan,
-					currentPlanData,
 					referralType: user.referral_type,
 					directSaleCommission: user.direct_sales,
 					binaryCommission: user.binary_commission,
@@ -83,6 +83,54 @@ router.post('/login', async (req, res) => {
 		logger.error('Login error:', error);
 		res.status(500).send({ message: 'Internal server error', code: 'SERVER_ERROR' });
 	}
+});
+
+router.get('/user/:userId', isAuthenticated, async (req, res) => {
+	const { userId } = req.params;
+
+	if (userId === undefined)
+		return res.json(400).json({ success: false, message: 'Required parameters cannot be empty.' });
+
+	if (req.locals.id !== userId)
+		return res.status(401).json({ success: false, message: 'You cannot access user data other than yours' });
+
+	const q = await db.query('SELECT * FROM fx_users WHERE member_id = ?', [userId]);
+	if (q.length <= 0) return res.json(400).json({ success: false, message: 'Request user cannot be found.' });
+
+	const user = q[0];
+	const data = {
+		email: user.email,
+		id: user.member_id,
+		firstName: user.first_name,
+		lastName: user.last_name,
+		role: user.user_role,
+		username: user.first_name,
+		profile_status: user.profile_status,
+		mobileNumber: user.mobile_number,
+		secondaryPhone: user.secondary_phone_number,
+		address: user.address,
+		dateOfBirth: user.date_of_birth,
+		nationalIdentityNumber: user.national_identity_number,
+		registrationDate: user.registration_date,
+		introducer: user.introducer,
+		salesSummary: user.sales_sum,
+		debitCount: user.debit_count,
+		introCount: user.intro_count,
+		firstSalesAmount: user.first_sale_amount,
+		cashBack: user.cash_back,
+		currentPlan: user.plan,
+		referralType: user.referral_type,
+		directSaleCommission: user.direct_sales,
+		binaryCommission: user.binary_commission,
+		currentBalance: user.current_balance,
+		totalEarnings: user.total_earnings,
+		totalWithdrawals: user.total_withdrawals,
+	};
+
+	res.json({
+		time: Date.now(),
+		...data,
+	});
 });
 
 module.exports = router;

@@ -7,6 +7,7 @@ require('dotenv').config();
 const router = express.Router();
 const db = require('../database');
 const { transporter } = require('../mailer');
+const { isAuthenticated } = require('../middleware/isAuthenticated');
 
 const ADMINISTRATION_AND_ONE_YEAR_SIGNAL_FEE = 15;
 const STRIPE_PROCESSING_FEE_PERCENTAGE = 4.2 / 100;
@@ -199,14 +200,14 @@ async function updatePaymentData(member_id, payment_intent, amount, plan, paymen
 	await db.query('UPDATE `fx_users` SET profile_status = ?, activation_date = NOW(), plan = ? WHERE member_id = ?', [
 		'Activated',
 		parseInt(plan),
-		parseInt(member_id),
+		member_id,
 	]);
 
 	if (paymentMethod === 'STRIPE') {
 		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan, status) VALUES (?, ?, ?, ?, ?)', [
 			parseFloat(amount),
 			payment_intent,
-			parseInt(member_id),
+			member_id,
 			parseInt(plan),
 			'Verified',
 		]);
@@ -215,15 +216,11 @@ async function updatePaymentData(member_id, payment_intent, amount, plan, paymen
 	// if plan id equals to 1 (Starter plan), add the direct commission to the introducer.
 	if (parseInt(plan) === 1) await addDirectCommissionToIntroducer(user.introducer, planData.product_price);
 
-	const data = await addReferralPointsToParents(
-		parseInt(planData.referral_points),
-		parseInt(user.member_id),
-		user.referral_type
-	);
+	const data = await addReferralPointsToParents(parseInt(planData.referral_points), user.member_id, user.referral_type);
 }
 
 // Stripe payment endpoint
-router.get('/get-products/:currentPlan', async (req, res) => {
+router.get('/get-products/:currentPlan', isAuthenticated, async (req, res) => {
 	const { currentPlan } = req.params;
 
 	const isCurrentPlanAnInteger = Number.isInteger(parseInt(currentPlan));
@@ -393,7 +390,7 @@ router.post('/binance-payment-completed', async (req, res) => {
 		await db.query('INSERT INTO transactions(amount, payment_intent, member_id, plan, status) VALUES (?, ?, ?, ?, ?)', [
 			parseFloat(amount),
 			trx,
-			parseInt(member_id),
+			member_id,
 			parseInt(plan_id),
 			'Pending',
 		]);
@@ -528,7 +525,7 @@ router.post('/withdraw', async (req, res) => {
 		]);
 
 		transporter.sendMail(mailOptions);
-		res.json({ success: true });
+		res.json({ success: true, message: 'Withdraw request created successfully.' });
 	} catch (error) {
 		logger.error('Failed to complete the withdraw request:', error);
 		res.status(500).json({ success: false, message: error.message });
